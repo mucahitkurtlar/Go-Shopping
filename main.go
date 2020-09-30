@@ -44,6 +44,7 @@ func main() {
 	r.HandleFunc("/admin/register", adminRegisterGetHandler).Methods("GET")
 	r.HandleFunc("/admin/register", adminRegisterPostHandler).Methods("POST")
 	r.HandleFunc("/admin/logout", adminLogoutGetHandler).Methods("GET")
+	r.HandleFunc("/admin/list-admin", adminListAdminHandler).Methods("GET")
 
 	r.HandleFunc("/register", registerGetHandler).Methods("GET")
 	r.HandleFunc("/register", registerPostHandler).Methods("POST")
@@ -138,6 +139,18 @@ func adminLogoutGetHandler(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 	http.Redirect(w, r, "/admin/login", 302)
+}
+
+func adminListAdminHandler(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "session")
+	email, ok := session.Values["admin_email"]
+	fmt.Println(email, ok)
+	if !ok || email == "" {
+		fmt.Println("Redireting to /admin/login")
+		http.Redirect(w, r, "/admin/login", 302)
+		return
+	}
+	templates.ExecuteTemplate(w, "admin_list-admin.html", activeAdmin)
 }
 
 //*****************************************************************
