@@ -5,8 +5,11 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/smtp"
+	"strconv"
 
 	"./dbconn"
+	"./secrets"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
@@ -29,6 +32,39 @@ type Admin struct {
 	AdminSurname string
 }
 
+func getAdmins() []Admin {
+	db, err := dbconn.NewDB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	selDB, err := db.Query("SELECT * FROM admins")
+	if err != nil {
+		panic(err.Error())
+	}
+
+	admin := Admin{}
+	admins := []Admin{}
+
+	for selDB.Next() {
+
+		var adminID int
+		var adminEmail, adminHash, adminName, adminSurname string
+
+		err = selDB.Scan(&adminID, &adminEmail, &adminHash, &adminName, &adminSurname)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		admin.AdminID = adminID
+		admin.AdminEmail = adminEmail
+		admin.AdminHash = adminHash
+		admin.AdminName = adminName
+		admin.AdminSurname = adminSurname
+		admins = append(admins, admin)
+	}
+	return admins
+}
+
 var activeAdmin Admin
 var activeUser User
 var templates *template.Template
@@ -43,6 +79,8 @@ func main() {
 	r.HandleFunc("/admin/login", adminLoginPostHandler).Methods("POST")
 	r.HandleFunc("/admin/register", adminRegisterGetHandler).Methods("GET")
 	r.HandleFunc("/admin/register", adminRegisterPostHandler).Methods("POST")
+	r.HandleFunc("/admin/forget-pass", adminForgetGetHandler).Methods("GET")
+	r.HandleFunc("/admin/forget-pass", adminForgetPostHandler).Methods("POST")
 	r.HandleFunc("/admin/logout", adminLogoutGetHandler).Methods("GET")
 	r.HandleFunc("/admin/list-admin", adminListAdminHandler).Methods("GET")
 
@@ -63,7 +101,6 @@ func main() {
 func adminIndexHandler(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "session")
 	email, ok := session.Values["admin_email"]
-	fmt.Println(email, ok)
 	if !ok || email == "" {
 		fmt.Println("Redireting to /admin/login")
 		http.Redirect(w, r, "/admin/login", 302)
@@ -131,6 +168,25 @@ func adminRegisterPostHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func adminForgetGetHandler(w http.ResponseWriter, r *http.Request) {
+	templates.ExecuteTemplate(w, "admin_forget-pass.html", nil)
+}
+
+func adminForgetPostHandler(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	email := r.PostForm.Get("email")
+	admin, err := getActiveAdmin(email)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Alzheimer admin id: " + strconv.Itoa(admin.AdminID))
+	err = sendRecovery(email, strconv.Itoa(admin.AdminID))
+	if err != nil {
+		log.Fatal(err)
+	}
+	http.Redirect(w, r, "/admin/login", 302)
+}
+
 func adminLogoutGetHandler(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "session")
 	session.Values["admin_email"] = ""
@@ -150,7 +206,7 @@ func adminListAdminHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/login", 302)
 		return
 	}
-	templates.ExecuteTemplate(w, "admin_list-admin.html", activeAdmin)
+	templates.ExecuteTemplate(w, "admin_list-admin.html", getAdmins())
 }
 
 //*****************************************************************
@@ -352,4 +408,31 @@ func getHash(username string) (string, error) {
 	}
 	fmt.Println("User hash: " + user.UserHash)
 	return user.UserHash, nil
+}
+
+func sendRecovery(to, id string) error {
+	fmt.Println("sendRecovery running..")
+	msg := []byte("To:  " + to + "\r\n" +
+		"Subject: Password Recovery\r\n" +
+		"\r\n" +
+		"Follow this link to reset your password: localhost:8080/admin/reset-pass?id=" + id + "\r\n")
+	err := sendMail(to, msg)
+	return err
+}
+
+func sendMail(to string, msg []byte) error {
+	from := secrets.GetSMTPMail()
+	pass := secrets.GetSMTPPass()
+	auth := smtp.PlainAuth("", from, pass, "smtp.gmail.com")
+	/*
+		msg := []byte("To:  " + to + "\r\n" +
+			"Subject: discount Gophers!\r\n" +
+			"\r\n" +
+			"This is the email body.\r\n")
+	*/
+	err := smtp.SendMail("smtp.gmail.com:587",
+		auth,
+		from, []string{to}, msg)
+
+	return err
 }
