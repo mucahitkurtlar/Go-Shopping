@@ -74,7 +74,7 @@ func main() {
 	templates = template.Must(template.ParseGlob("templates/*.html"))
 	r := mux.NewRouter()
 	r.HandleFunc("/", indexHandler)
-	r.HandleFunc("/admin", adminIndexHandler)
+	r.HandleFunc("/admin", adminAuthRequired(adminIndexHandler))
 	r.HandleFunc("/admin/login", adminLoginGetHandler).Methods("GET")
 	r.HandleFunc("/admin/login", adminLoginPostHandler).Methods("POST")
 	r.HandleFunc("/admin/register", adminRegisterGetHandler).Methods("GET")
@@ -82,7 +82,7 @@ func main() {
 	r.HandleFunc("/admin/forget-pass", adminForgetGetHandler).Methods("GET")
 	r.HandleFunc("/admin/forget-pass", adminForgetPostHandler).Methods("POST")
 	r.HandleFunc("/admin/logout", adminLogoutGetHandler).Methods("GET")
-	r.HandleFunc("/admin/list-admin", adminListAdminHandler).Methods("GET")
+	r.HandleFunc("/admin/list-admin", adminAuthRequired(adminListAdminHandler)).Methods("GET")
 
 	r.HandleFunc("/register", registerGetHandler).Methods("GET")
 	r.HandleFunc("/register", registerPostHandler).Methods("POST")
@@ -98,14 +98,20 @@ func main() {
 
 }
 
-func adminIndexHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session")
-	email, ok := session.Values["admin_email"]
-	if !ok || email == "" {
-		fmt.Println("Redireting to /admin/login")
-		http.Redirect(w, r, "/admin/login", 302)
-		return
+func adminAuthRequired(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, _ := store.Get(r, "session")
+		email, ok := session.Values["admin_email"]
+		if !ok || email == "" {
+			fmt.Println("Redireting to /admin/login")
+			http.Redirect(w, r, "/admin/login", 302)
+			return
+		}
+		handler.ServeHTTP(w, r)
 	}
+}
+
+func adminIndexHandler(w http.ResponseWriter, r *http.Request) {
 	templates.ExecuteTemplate(w, "admin_index.html", activeAdmin)
 }
 
@@ -198,14 +204,6 @@ func adminLogoutGetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func adminListAdminHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session")
-	email, ok := session.Values["admin_email"]
-	fmt.Println(email, ok)
-	if !ok || email == "" {
-		fmt.Println("Redireting to /admin/login")
-		http.Redirect(w, r, "/admin/login", 302)
-		return
-	}
 	templates.ExecuteTemplate(w, "admin_list-admin.html", getAdmins())
 }
 
