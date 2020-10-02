@@ -15,6 +15,15 @@ type User struct {
 	Surname string
 }
 
+//InsertUser exported
+func InsertUser(email, hash, name, surname string) error {
+	db, err := dbconn.NewDB()
+	sqlStr := "INSERT INTO userss(user_email, user_hash, user_name, user_surname) VALUES(?,?,?,?)"
+	insertQuery, err := db.Prepare(sqlStr)
+	_, err = insertQuery.Exec(email, hash, name, surname)
+	return err
+}
+
 //GetUsers exported
 func GetUsers() []User {
 	db, err := dbconn.NewDB()

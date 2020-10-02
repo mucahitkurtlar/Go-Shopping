@@ -15,6 +15,15 @@ type Admin struct {
 	Surname string
 }
 
+//InsertAdmin exported
+func InsertAdmin(email, hash, name, surname string) error {
+	db, err := dbconn.NewDB()
+	sqlStr := "INSERT INTO admins(admin_email, admin_hash, admin_name, admin_surname) VALUES(?,?,?,?)"
+	insertQuery, err := db.Prepare(sqlStr)
+	_, err = insertQuery.Exec(email, hash, name, surname)
+	return err
+}
+
 //GetAdmin exported
 func GetAdmin(email string) (Admin, error) {
 	db, err := dbconn.NewDB()
