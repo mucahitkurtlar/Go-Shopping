@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"./dbconn"
+	"./models"
 	"./secrets"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
@@ -16,57 +17,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-//User ..
-type User struct {
-	UserID   int
-	Username string
-	UserHash string
-}
-
-//Admin ..
-type Admin struct {
-	AdminID      int
-	AdminEmail   string
-	AdminHash    string
-	AdminName    string
-	AdminSurname string
-}
-
-func getAdmins() []Admin {
-	db, err := dbconn.NewDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	selDB, err := db.Query("SELECT * FROM admins")
-	if err != nil {
-		panic(err.Error())
-	}
-
-	admin := Admin{}
-	admins := []Admin{}
-
-	for selDB.Next() {
-
-		var adminID int
-		var adminEmail, adminHash, adminName, adminSurname string
-
-		err = selDB.Scan(&adminID, &adminEmail, &adminHash, &adminName, &adminSurname)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		admin.AdminID = adminID
-		admin.AdminEmail = adminEmail
-		admin.AdminHash = adminHash
-		admin.AdminName = adminName
-		admin.AdminSurname = adminSurname
-		admins = append(admins, admin)
-	}
-	return admins
-}
-
-var activeAdmin Admin
-var activeUser User
+var activeAdmin models.Admin
+var activeUser models.User
 var templates *template.Template
 var store = sessions.NewCookieStore([]byte("t0p-s3cr3t"))
 
@@ -123,14 +75,14 @@ func adminLoginPostHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	email := r.PostForm.Get("email")
 	password := r.PostForm.Get("password")
-	admin, err := getActiveAdmin(email)
+	admin, err := models.GetAdmin(email)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Internal server error!"))
 		return
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(admin.AdminHash), []byte(password))
+	err = bcrypt.CompareHashAndPassword([]byte(admin.Hash), []byte(password))
 	if err != nil {
 		log.Fatal(err)
 
@@ -146,7 +98,7 @@ func adminLoginPostHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	activeAdmin, err = getActiveAdmin(email)
+	activeAdmin, err = models.GetAdmin(email)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -181,12 +133,12 @@ func adminForgetGetHandler(w http.ResponseWriter, r *http.Request) {
 func adminForgetPostHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	email := r.PostForm.Get("email")
-	admin, err := getActiveAdmin(email)
+	admin, err := models.GetAdmin(email)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Alzheimer admin id: " + strconv.Itoa(admin.AdminID))
-	err = sendRecovery(email, strconv.Itoa(admin.AdminID))
+	fmt.Println("Alzheimer admin id: " + strconv.Itoa(admin.ID))
+	err = sendRecovery(email, strconv.Itoa(admin.ID))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -204,7 +156,7 @@ func adminLogoutGetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func adminListAdminHandler(w http.ResponseWriter, r *http.Request) {
-	templates.ExecuteTemplate(w, "admin_list-admin.html", getAdmins())
+	templates.ExecuteTemplate(w, "admin_list-admin.html", models.GetAdmins())
 }
 
 //*****************************************************************
@@ -227,13 +179,13 @@ func loginPostHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	username := r.PostForm.Get("username")
 	password := r.PostForm.Get("password")
-	hash, err := getHash(username)
+	user, err := models.GetUser(username)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Internal server error!"))
 		return
 	}
-	err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	err = bcrypt.CompareHashAndPassword([]byte(user.Hash), []byte(password))
 	if err != nil {
 		log.Fatal(err)
 
@@ -308,104 +260,6 @@ func insertAdmin(email, hash, name, surname string) error {
 		panic(err)
 	}
 	return nil
-}
-
-func getActiveAdmin(email string) (Admin, error) {
-	/*
-		AdminID int
-		AdminEmail string
-		AdminHash string
-		AdminName string
-		AdminSurname string
-	*/
-
-	db, err := dbconn.NewDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	selDB, err := db.Query("SELECT * FROM admins WHERE admin_email=?", email)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	admin := Admin{}
-
-	for selDB.Next() {
-
-		var adminID int
-		var adminEmail, adminHash, adminName, adminSurname string
-
-		err = selDB.Scan(&adminID, &adminEmail, &adminHash, &adminName, &adminSurname)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		admin.AdminID = adminID
-		admin.AdminEmail = adminEmail
-		admin.AdminHash = adminHash
-		admin.AdminName = adminName
-		admin.AdminSurname = adminSurname
-	}
-	return admin, nil
-}
-
-func getActiveUser(username string) (User, error) {
-	db, err := dbconn.NewDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	selDB, err := db.Query("SELECT * FROM users WHERE username=?", username)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	user := User{}
-
-	for selDB.Next() {
-
-		var id int
-		var userName, hash string
-
-		err = selDB.Scan(&id, &userName, &hash)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		user.UserID = id
-		user.Username = userName
-		user.UserHash = hash
-	}
-	return user, nil
-}
-
-func getHash(username string) (string, error) {
-	db, err := dbconn.NewDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	selDB, err := db.Query("SELECT * FROM users WHERE username=?", username)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	user := User{}
-
-	for selDB.Next() {
-
-		var id int
-		var userName, hash string
-
-		err = selDB.Scan(&id, &userName, &hash)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		user.UserID = id
-		user.Username = userName
-		user.UserHash = hash
-	}
-	fmt.Println("User hash: " + user.UserHash)
-	return user.UserHash, nil
 }
 
 func sendRecovery(to, id string) error {
