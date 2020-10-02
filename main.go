@@ -8,25 +8,24 @@ import (
 	"net/smtp"
 	"strconv"
 
-	"./dbconn"
+	"./middleware"
 	"./models"
 	"./secrets"
+	"./sessions"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
-	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var activeAdmin models.Admin
 var activeUser models.User
 var templates *template.Template
-var store = sessions.NewCookieStore([]byte("t0p-s3cr3t"))
 
 func main() {
 	templates = template.Must(template.ParseGlob("templates/*.html"))
 	r := mux.NewRouter()
 	r.HandleFunc("/", indexHandler)
-	r.HandleFunc("/admin", adminAuthRequired(adminIndexHandler))
+	r.HandleFunc("/admin", middleware.AdminAuthRequired(adminIndexHandler))
 	r.HandleFunc("/admin/login", adminLoginGetHandler).Methods("GET")
 	r.HandleFunc("/admin/login", adminLoginPostHandler).Methods("POST")
 	r.HandleFunc("/admin/register", adminRegisterGetHandler).Methods("GET")
@@ -34,7 +33,7 @@ func main() {
 	r.HandleFunc("/admin/forget-pass", adminForgetGetHandler).Methods("GET")
 	r.HandleFunc("/admin/forget-pass", adminForgetPostHandler).Methods("POST")
 	r.HandleFunc("/admin/logout", adminLogoutGetHandler).Methods("GET")
-	r.HandleFunc("/admin/list-admin", adminAuthRequired(adminListAdminHandler)).Methods("GET")
+	r.HandleFunc("/admin/list-admin", middleware.AdminAuthRequired(adminListAdminHandler)).Methods("GET")
 
 	r.HandleFunc("/register", registerGetHandler).Methods("GET")
 	r.HandleFunc("/register", registerPostHandler).Methods("POST")
@@ -48,19 +47,6 @@ func main() {
 	http.Handle("/", r)
 	http.ListenAndServe(":8080", nil)
 
-}
-
-func adminAuthRequired(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		session, _ := store.Get(r, "session")
-		email, ok := session.Values["admin_email"]
-		if !ok || email == "" {
-			fmt.Println("Redireting to /admin/login")
-			http.Redirect(w, r, "/admin/login", 302)
-			return
-		}
-		handler.ServeHTTP(w, r)
-	}
 }
 
 func adminIndexHandler(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +74,7 @@ func adminLoginPostHandler(w http.ResponseWriter, r *http.Request) {
 
 	}
 	fmt.Println("Login successful")
-	session, err := store.Get(r, "session")
+	session, err := sessions.Store.Get(r, "session")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -121,9 +107,13 @@ func adminRegisterPostHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 
 	}
-	insertAdmin(email, string(hash), name, surname)
+	err = models.InsertAdmin(email, string(hash), name, surname)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Internal server error!"))
+		return
+	}
 	http.Redirect(w, r, "/admin/login", 302)
-
 }
 
 func adminForgetGetHandler(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +136,7 @@ func adminForgetPostHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func adminLogoutGetHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session")
+	session, _ := sessions.Store.Get(r, "session")
 	session.Values["admin_email"] = ""
 	err := session.Save(r, w)
 	if err != nil {
@@ -161,7 +151,7 @@ func adminListAdminHandler(w http.ResponseWriter, r *http.Request) {
 
 //*****************************************************************
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session")
+	session, _ := sessions.Store.Get(r, "session")
 	username, ok := session.Values["username"]
 	fmt.Println(username, ok)
 	if !ok || username == "" {
@@ -190,7 +180,7 @@ func loginPostHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 
 	}
-	session, _ := store.Get(r, "session")
+	session, _ := sessions.Store.Get(r, "session")
 	session.Values["username"] = username
 	fmt.Println(username)
 	session.Save(r, w)
@@ -203,7 +193,9 @@ func registerGetHandler(w http.ResponseWriter, r *http.Request) {
 
 func registerPostHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
-	username := r.PostForm.Get("username")
+	name := r.PostForm.Get("name")
+	surname := r.PostForm.Get("surname")
+	email := r.PostForm.Get("email")
 	password := r.PostForm.Get("password")
 	cost := bcrypt.DefaultCost
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
@@ -211,55 +203,24 @@ func registerPostHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 
 	}
-	insertUser(username, string(hash))
+	err = models.InsertUser(email, string(hash), name, surname)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Internal server error!"))
+		return
+	}
 	http.Redirect(w, r, "/login", 302)
 
 }
 
 func logoutGetHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session")
+	session, _ := sessions.Store.Get(r, "session")
 	session.Values["username"] = ""
 	err := session.Save(r, w)
 	if err != nil {
 		panic(err)
 	}
 	http.Redirect(w, r, "/login", 302)
-}
-
-func insertUser(username, hash string) error {
-	db, err := dbconn.NewDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	sqlStr := "INSERT INTO users(username, user_hash) VALUES(?,?)"
-	insertQuery, err := db.Prepare(sqlStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = insertQuery.Exec(username, hash)
-	if err != nil {
-		panic(err)
-	}
-	return nil
-}
-
-func insertAdmin(email, hash, name, surname string) error {
-	db, err := dbconn.NewDB()
-	if err != nil {
-		log.Fatal(err)
-	}
-	sqlStr := "INSERT INTO admins(admin_email, admin_hash, admin_name, admin_surname) VALUES(?,?,?,?)"
-	insertQuery, err := db.Prepare(sqlStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = insertQuery.Exec(email, hash, name, surname)
-	if err != nil {
-		panic(err)
-	}
-	return nil
 }
 
 func sendRecovery(to, id string) error {
