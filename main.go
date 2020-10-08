@@ -34,6 +34,8 @@ func main() {
 	r.HandleFunc("/admin/forget-pass", adminForgetPostHandler).Methods("POST")
 	r.HandleFunc("/admin/logout", adminLogoutGetHandler).Methods("GET")
 	r.HandleFunc("/admin/list-admin", middleware.AdminAuthRequired(adminListAdminHandler)).Methods("GET")
+	r.HandleFunc("/admin/add-admin", middleware.AdminAuthRequired(adminAddAdminGetHandler)).Methods("GET")
+	r.HandleFunc("/admin/add-admin", middleware.AdminAuthRequired(adminAddAdminPostHandler)).Methods("POST")
 
 	r.HandleFunc("/register", registerGetHandler).Methods("GET")
 	r.HandleFunc("/register", registerPostHandler).Methods("POST")
@@ -147,6 +149,43 @@ func adminLogoutGetHandler(w http.ResponseWriter, r *http.Request) {
 
 func adminListAdminHandler(w http.ResponseWriter, r *http.Request) {
 	templates.ExecuteTemplate(w, "admin_list-admin.html", models.GetAdmins())
+}
+
+func adminAddAdminGetHandler(w http.ResponseWriter, r *http.Request) {
+	templates.ExecuteTemplate(w, "admin_add-admin.html", models.GetAdmins())
+}
+
+func adminAddAdminPostHandler(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		panic(err)
+	}
+	name := r.PostForm.Get("name")
+	surname := r.PostForm.Get("last-name")
+	email := r.PostForm.Get("email")
+	password := r.PostForm.Get("password")
+	rpassword := r.PostForm.Get("password-repeat")
+	status := r.PostForm.Get("status")
+	checkbox1 := r.PostForm.Get("checkbox1")
+	checkbox2 := r.PostForm.Get("checkbox2")
+	checkbox3 := r.PostForm.Get("checkbox3")
+	checkbox4 := r.PostForm.Get("checkbox4")
+	checkbox5 := r.PostForm.Get("checkbox5")
+	checkbox6 := r.PostForm.Get("checkbox6")
+
+	fmt.Println(name)
+	fmt.Println(surname)
+	fmt.Println(email)
+	fmt.Println(password)
+	fmt.Println(rpassword)
+	fmt.Println(status)
+	fmt.Println(checkbox1)
+	fmt.Println(checkbox2)
+	fmt.Println(checkbox3)
+	fmt.Println(checkbox4)
+	fmt.Println(checkbox5)
+	fmt.Println(checkbox6)
+	http.Redirect(w, r, "/admin/login", 302)
 }
 
 //*****************************************************************
